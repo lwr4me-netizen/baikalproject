@@ -1,0 +1,18 @@
+baikalproject.pro {
+    encode gzip
+
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    handle {
+        reverse_proxy web:3000
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+    }
+}

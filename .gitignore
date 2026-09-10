@@ -1,0 +1,38 @@
+# Secrets
+.env
+.env.*
+!.env.example
+!apps/api/.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+alembic_gen.db
+*.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Local storage fallback used by tests/dev
+/tmp/arbitrpack-storage/
+
+# Build artifacts
+dist/
+build/
+
+# Playwright artifacts
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/

@@ -1,0 +1,134 @@
+# Продакшен-профиль: наружу торчат только 80/443 через Caddy. Postgres/MinIO/API/Web доступны
+# только внутри внутренней docker-сети. Запуск: docker compose -f docker-compose.prod.yml up -d --build
+# Требует .env (см. .env.example) с реальными ARBITRPACK_FRONTEND_BASE_URL=https://<домен> и т.д.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arbitrpack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}
+      POSTGRES_DB: ${POSTGRES_DB:-arbitrpack}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arbitrpack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Никаких ports: наружу — доступ только другим сервисам этой compose-сети.
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Консоль MinIO (9001) в проде намеренно не публикуется. Для доступа используйте SSH-туннель:
+    # ssh -L 9001:localhost:9001 -L 9000:localhost:9000 root@<IP_сервера>, затем откройте
+    # http://localhost:9001 у себя в браузере.
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ARBITRPACK_ENVIRONMENT: production
+      ARBITRPACK_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arbitrpack}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}@postgres:5432/${POSTGRES_DB:-arbitrpack}
+    command: ["alembic", "upgrade", "head"]
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      ARBITRPACK_ENVIRONMENT: production
+      ARBITRPACK_SECRET_KEY: ${ARBITRPACK_SECRET_KEY:?ARBITRPACK_SECRET_KEY обязателен в проде — сгенерируйте openssl rand -hex 32}
+      ARBITRPACK_ADMIN_TOKEN: ${ARBITRPACK_ADMIN_TOKEN:?ARBITRPACK_ADMIN_TOKEN обязателен — сгенерируйте openssl rand -hex 24}
+      ARBITRPACK_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arbitrpack}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}@postgres:5432/${POSTGRES_DB:-arbitrpack}
+      ARBITRPACK_S3_ENDPOINT_URL: http://minio:9000
+      ARBITRPACK_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      ARBITRPACK_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}
+      ARBITRPACK_S3_BUCKET: arbitrpack-files
+      ARBITRPACK_PAYMENT_PROVIDER: ${ARBITRPACK_PAYMENT_PROVIDER:-mock}
+      ARBITRPACK_YOOKASSA_SHOP_ID: ${ARBITRPACK_YOOKASSA_SHOP_ID:-}
+      ARBITRPACK_YOOKASSA_SECRET_KEY: ${ARBITRPACK_YOOKASSA_SECRET_KEY:-}
+      ARBITRPACK_FRONTEND_BASE_URL: ${ARBITRPACK_FRONTEND_BASE_URL:?укажите https://ваш-домен}
+      ARBITRPACK_API_BASE_URL: ${ARBITRPACK_API_BASE_URL:?укажите https://ваш-домен}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Наружу не публикуется — доступ только через Caddy по внутренней сети (api:8000).
+
+  ttl-cleanup:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      ARBITRPACK_ENVIRONMENT: production
+      ARBITRPACK_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-arbitrpack}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}@postgres:5432/${POSTGRES_DB:-arbitrpack}
+      ARBITRPACK_S3_ENDPOINT_URL: http://minio:9000
+      ARBITRPACK_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      ARBITRPACK_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD обязателен в проде — сгенерируйте openssl rand -hex 16}
+    entrypoint: ["sh", "-c", "while true; do python /app/scripts/ttl_cleanup.py; sleep 900; done"]
+    # В отличие от dev-файла, в проде демон TTL включён по умолчанию (не под profiles),
+    # чтобы данные пользователей гарантированно удалялись по расписанию без ручного запуска.
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${ARBITRPACK_FRONTEND_BASE_URL:?укажите https://ваш-домен}
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${ARBITRPACK_FRONTEND_BASE_URL:?укажите https://ваш-домен}
+    # Наружу не публикуется — доступ только через Caddy по внутренней сети (web:3000).
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  minio_data:
+  caddy_data:
+  caddy_config:

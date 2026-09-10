@@ -1,0 +1,59 @@
+# Конфигурация правил валидации ArbitrPack.
+# Все лимиты и правила вынесены сюда (см. docs/requirements-sources.md для источника каждого правила).
+# Изменение этого файла не требует изменения кода backend/frontend.
+version: 1
+
+files:
+  allowed_extensions: ["pdf", "jpg", "jpeg", "png"]
+  allowed_mime_types:
+    - "application/pdf"
+    - "image/jpeg"
+    - "image/png"
+  # R-2: не более 30 МБ на файл (приказ Судебного департамента № 252, PARTIALLY VERIFIED)
+  max_file_size_mb: 30
+  # R-3: продуктовый лимит ArbitrPack, НЕ нормативное требование суда (UNVERIFIED источник общего лимита)
+  max_batch_size_mb: 300
+  max_files_per_batch: 50
+  min_file_size_bytes: 16
+
+scanning_quality:
+  # R-4: рекомендация, не блокирующая ошибка
+  recommended_min_dpi: 200
+  recommended_max_dpi: 300
+
+naming:
+  # R-5: подсказка пользователю, не автоюридизация названия
+  max_filename_length: 180
+  suggest_page_count_suffix: true
+
+duplicates:
+  algorithm: "sha256"
+  action: "warning"   # не блокирует, помечается как предупреждение
+
+blank_page_heuristic:
+  # эвристика: доля закрашенных пикселей ниже порога считается "потенциально пустой"
+  ink_coverage_threshold: 0.003
+  enabled: true
+
+severity_mapping:
+  # категория проблемы -> уровень серьёзности
+  corrupted_file: critical
+  encrypted_pdf: critical
+  disallowed_extension: critical
+  mime_extension_mismatch: critical
+  oversized_file: critical
+  batch_too_large: critical
+  double_extension: critical
+  empty_file: critical
+  duplicate_file: warning
+  low_scan_quality: warning
+  possibly_blank_page: warning
+  filename_not_descriptive: recommendation
+  missing_signature_reminder: recommendation
+
+ttl_options_hours: [24, 72, 168]   # 1 день / 3 дня / 7 дней — выбор пользователя на экране загрузки
+default_ttl_hours: 72
+
+pricing:
+  currency: "RUB"
+  full_processing_price: 39900   # копейки => 399.00 RUB, конфигурируемо, см. docs/economics.md

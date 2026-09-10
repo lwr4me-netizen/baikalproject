@@ -1,0 +1,69 @@
+# Ruleset профиля GAS_PRAVOSUDIE (JusticePack). Источники и обоснование каждого правила —
+# docs/justicepack/official-requirements.md. НЕ путать с packages/validation-rules/rules.yaml (профиль ARBITR_MY_ARBITR) —
+# системы физически разделены по требованию раздела 2 ТЗ.
+version: 1
+system: GAS_PRAVOSUDIE
+profile_name: "ГАС «Правосудие» / суды общей юрисдикции"
+
+files:
+  # GAS-R1, GAS-R6: PDF/JPG/JPEG/PNG — MVP-подмножество официально допустимых форматов (см. official-requirements.md)
+  allowed_extensions: ["pdf", "jpg", "jpeg", "png"]
+  allowed_mime_types:
+    - "application/pdf"
+    - "image/jpeg"
+    - "image/png"
+  # GAS-R2: не более 30 МБ на файл, приказ №251 п.2.2 (PARTIALLY VERIFIED — текст воспроизведён sudact.ru)
+  max_file_size_mb: 30
+  # GAS-R9: продуктовый лимит ArbitrPack/JusticePack, НЕ нормативное требование (UNVERIFIED источник общего лимита)
+  max_batch_size_mb: 300
+  max_files_per_batch: 50
+  min_file_size_bytes: 16
+
+scanning_quality:
+  # GAS-R3: рекомендация, не блокирующая ошибка
+  recommended_min_dpi: 200
+  recommended_max_dpi: 300
+
+naming:
+  # GAS-R7: подсказка пользователю, не автоюридизация названия
+  max_filename_length: 180
+  suggest_page_count_suffix: true
+
+duplicates:
+  algorithm: "sha256"
+  action: "warning"
+
+blank_page_heuristic:
+  ink_coverage_threshold: 0.003
+  enabled: true
+
+encrypted_pdf:
+  # GAS-R4: приказ №251 прямо требует отсутствие защиты от копирования/печати — здесь это BLOCKER,
+  # а не просто техническая проблема открытия файла (в отличие от ArbitrPack эта формулировка сильнее).
+  severity: critical
+
+severity_mapping:
+  corrupted_file: critical
+  encrypted_pdf: critical          # GAS-R4
+  disallowed_extension: critical   # GAS-R1/GAS-R6
+  mime_extension_mismatch: critical
+  oversized_file: critical         # GAS-R2
+  batch_too_large: critical        # GAS-R9 (продуктовый лимит)
+  double_extension: critical
+  empty_file: critical
+  duplicate_file: warning
+  low_scan_quality: warning        # GAS-R3
+  possibly_blank_page: warning
+  filename_not_descriptive: recommendation   # GAS-R7
+  missing_signature_reminder: recommendation # GAS-R8
+  multiple_documents_in_one_file: recommendation  # GAS-R5 (не автоопределяется технически, зарезервировано)
+
+ttl_options_hours: [24, 72, 168]
+default_ttl_hours: 72
+
+pricing:
+  currency: "RUB"
+  # Цена НЕ совпадает по умолчанию с ArbitrPack — отдельный тариф профиля (раздел 7 ТЗ JusticePack:
+  # "Цена должна задаваться через конфигурацию. Не устанавливай произвольную окончательную цену без решения владельца").
+  # Значение ниже — placeholder такого же порядка, что и у ArbitrPack, помечено как временное умолчание.
+  full_processing_price: 39900   # копейки => 399.00 RUB — OWNER ACTION REQUIRED: подтвердить итоговый тариф
